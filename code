@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reaction Time Task with Histogram</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa; }
+        #setup-screen, #results-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        .card { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; max-width: 800px; width: 90%; }
+        input { padding: 12px; margin: 15px; border: 2px solid #dee2e6; border-radius: 6px; width: 250px; font-size: 1rem; }
+        button { padding: 12px 24px; cursor: pointer; background-color: #28a745; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 1rem; transition: 0.2s; }
+        button:hover { background-color: #218838; transform: translateY(-1px); }
+        canvas#taskCanvas { display: none; background: #fff; cursor: crosshair; position: absolute; top: 0; left: 0; }
+        #results-screen { display: none; overflow-y: auto; }
+        .chart-container { position: relative; height: 400px; width: 100%; margin-top: 20px; }
+        #loader { font-style: italic; color: #666; }
+    </style>
+</head>
+<body>
+
+    <div id="setup-screen">
+        <div class="card">
+            <h1>Reaction Experiment</h1>
+            <p>Click the red circles as fast as you can.</p>
+            <input type="text" id="participant-id" placeholder="Participant ID (Optional)">
+            <br>
+            <button id="start-btn">Begin Experiment</button>
+        </div>
+    </div>
+
+    <canvas id="taskCanvas"></canvas>
+
+    <div id="results-screen">
+        <div class="card">
+            <h2>Your Results</h2>
+            <p id="user-stats">Calculating average...</p>
+            <div id="loader">Fetching community data...</div>
+            <div class="chart-container">
+                <canvas id="histogramChart"></canvas>
+            </div>
+            <br>
+            <button onclick="location.reload()">Try Again</button>
+        </div>
+    </div>
+
+    <script>
+        const setupScreen = document.getElementById('setup-screen');
+        const resultsScreen = document.getElementById('results-screen');
+        const startBtn = document.getElementById('start-btn');
+        const participantInput = document.getElementById('participant-id');
+        const canvas = document.getElementById('taskCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const TOTAL_TRIALS = 10;
+        const CIRCLE_RADIUS = 50;
+        const DELAY_BETWEEN = 500;
+        const ENDPOINT = "https://script.google.com/macros/s/AKfycbx4splnAlZcZE2VeHZTMcdAopBo-Sg4bLFtrDTQnbLhguBHAgl7RQHvcOEBpPpH1_cB/exec";
+
+        let trialCount = 0;
+        let results = [];
+        let startTime, currentX, currentY, participantId;
+
+        startBtn.addEventListener('click', startExperiment);
+
+        function startExperiment() {
+            participantId = participantInput.value.trim() || "USER-" + Math.random().toString(36).substr(2, 6).toUpperCase();
+            if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+            
+            setupScreen.style.display = 'none';
+            canvas.style.display = 'block';
+            resizeCanvas();
+            setTimeout(spawnCircle, 1000);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function spawnCircle() {
+            if (trialCount >= TOTAL_TRIALS) {
+                finishExperiment();
+                return;
+            }
+            currentX = Math.random() * (canvas.width - CIRCLE_RADIUS * 2) + CIRCLE_RADIUS;
+            currentY = Math.random() * (canvas.height - CIRCLE_RADIUS * 2) + CIRCLE_RADIUS;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath();
+            ctx.arc(currentX, currentY, CIRCLE_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = "#dc3545";
+            ctx.fill();
+            ctx.closePath();
+            startTime = performance.now();
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            const distance = Math.sqrt((clickX - currentX)**2 + (clickY - currentY)**2);
+            
+            if (distance < CIRCLE_RADIUS && startTime) {
+                results.push(performance.now() - startTime);
+                startTime = null;
+                trialCount++;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                setTimeout(spawnCircle, DELAY_BETWEEN);
+            }
+        });
+
+        async function finishExperiment() {
+            if (document.exitFullscreen) document.exitFullscreen();
+            canvas.style.display = 'none';
+            resultsScreen.style.display = 'flex';
+
+            const userAvg = results.reduce((a, b) => a + b, 0) / results.length;
+            document.getElementById('user-stats').innerText = `Your Average: ${userAvg.toFixed(2)} ms`;
+
+            // 1. Send data
+            try {
+                await fetch(ENDPOINT, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify({ participantId, trials: results })
+                });
+
+                // 2. Fetch historical data
+                const response = await fetch(ENDPOINT);
+                const historicalData = await response.json(); // Expecting array of numbers
+                
+                document.getElementById('loader').style.display = 'none';
+                renderChart(historicalData, userAvg);
+            } catch (err) {
+                document.getElementById('loader').innerText = "Note: Could not load comparison data.";
+                renderChart([userAvg], userAvg); // Fallback to just user data
+            }
+        }
+
+        function renderChart(allData, userAvg) {
+            const binSize = 50;
+            const bins = {};
+            
+            // Create histogram bins
+            allData.forEach(val => {
+                const bin = Math.floor(val / binSize) * binSize;
+                bins[bin] = (bins[bin] || 0) + 1;
+            });
+
+            const labels = Object.keys(bins).sort((a, b) => a - b);
+            const dataPoints = labels.map(l => bins[l]);
+
+            new Chart(document.getElementById('histogramChart'), {
+                type: 'bar',
+                data: {
+                    labels: labels.map(l => `${l}-${parseInt(l) + binSize}ms`),
+                    datasets: [{
+                        label: 'Frequency of Participants',
+                        data: dataPoints,
+                        backgroundColor: 'rgba(0, 123, 255, 0.5)',
+                        borderColor: 'rgba(0, 123, 255, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        annotation: {
+                            annotations: {
+                                line1: {
+                                    type: 'line',
+                                    xMin: (userAvg / binSize).toFixed(0), // Rough mapping to bin index
+                                    xMax: (userAvg / binSize).toFixed(0),
+                                    borderColor: 'red',
+                                    borderWidth: 4,
+                                    label: {
+                                        display: true,
+                                        content: 'YOU',
+                                        backgroundColor: 'red'
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Count' } },
+                        x: { title: { display: true, text: 'Reaction Time (ms)' } }
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+    </script>
+</body>
+</html>
