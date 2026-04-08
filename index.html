@@ -3,31 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reaction Time Task with Histogram</title>
+    <title>Reaction Time Experiment</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f7f6; }
         #setup-screen, #results-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        .card { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; max-width: 800px; width: 90%; }
-        input { padding: 12px; margin: 15px; border: 2px solid #dee2e6; border-radius: 6px; width: 250px; font-size: 1rem; }
-        button { padding: 12px 24px; cursor: pointer; background-color: #28a745; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 1rem; transition: 0.2s; }
-        button:hover { background-color: #218838; transform: translateY(-1px); }
-        canvas#taskCanvas { display: none; background: #fff; cursor: crosshair; position: absolute; top: 0; left: 0; }
-        #results-screen { display: none; overflow-y: auto; }
-        .chart-container { position: relative; height: 400px; width: 100%; margin-top: 20px; }
-        #loader { font-style: italic; color: #666; }
+        .card { background: white; padding: 3rem; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; max-width: 700px; width: 85%; }
+        input { padding: 12px; margin: 15px; border: 2px solid #e0e0e0; border-radius: 8px; width: 260px; font-size: 1rem; outline: none; transition: border 0.3s; }
+        input:focus { border-color: #007bff; }
+        button { padding: 12px 28px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; transition: 0.3s; }
+        button:hover { background-color: #0056b3; transform: translateY(-2px); }
+        canvas#taskCanvas { display: none; background: #ffffff; cursor: crosshair; position: absolute; top: 0; left: 0; }
+        #results-screen { display: none; background: #f4f7f6; z-index: 10; overflow-y: auto; }
+        .chart-container { position: relative; height: 350px; width: 100%; margin-top: 20px; }
+        #loader { font-size: 0.9rem; color: #666; margin-top: 10px; }
+        .stat-highlight { font-size: 1.5rem; font-weight: bold; color: #007bff; margin: 10px 0; }
     </style>
 </head>
 <body>
 
     <div id="setup-screen">
         <div class="card">
-            <h1>Reaction Experiment</h1>
-            <p>Click the red circles as fast as you can.</p>
+            <h1>Reaction Timer</h1>
+            <p>10 circles will appear. Click them as fast as possible.</p>
             <input type="text" id="participant-id" placeholder="Participant ID (Optional)">
             <br>
-            <button id="start-btn">Begin Experiment</button>
+            <button id="start-btn">Start Experiment</button>
         </div>
     </div>
 
@@ -35,14 +37,14 @@
 
     <div id="results-screen">
         <div class="card">
-            <h2>Your Results</h2>
-            <p id="user-stats">Calculating average...</p>
-            <div id="loader">Fetching community data...</div>
+            <h2>Task Complete</h2>
+            <div id="user-stats" class="stat-highlight">Calculating...</div>
+            <div id="loader">Syncing data with Google Sheets...</div>
             <div class="chart-container">
                 <canvas id="histogramChart"></canvas>
             </div>
             <br>
-            <button onclick="location.reload()">Try Again</button>
+            <button onclick="location.reload()">Restart Task</button>
         </div>
     </div>
 
@@ -57,23 +59,22 @@
         const TOTAL_TRIALS = 10;
         const CIRCLE_RADIUS = 50;
         const DELAY_BETWEEN = 500;
-        const ENDPOINT = "https://script.google.com/macros/s/AKfycbx4splnAlZcZE2VeHZTMcdAopBo-Sg4bLFtrDTQnbLhguBHAgl7RQHvcOEBpPpH1_cB/exec";
+        // UPDATED WEB APP URL
+        const ENDPOINT = "https://script.google.com/macros/s/AKfycbzvbbe6M_qhLtM13rHs9ZfRbV6IY025su8hxLT8_7lWRZJo_VQjYB_kOxo-LLE-jTe2/exec";
 
         let trialCount = 0;
         let results = [];
         let startTime, currentX, currentY, participantId;
 
-        startBtn.addEventListener('click', startExperiment);
-
-        function startExperiment() {
-            participantId = participantInput.value.trim() || "USER-" + Math.random().toString(36).substr(2, 6).toUpperCase();
+        startBtn.addEventListener('click', () => {
+            participantId = participantInput.value.trim() || "ID-" + Math.random().toString(36).substr(2, 5).toUpperCase();
             if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
             
             setupScreen.style.display = 'none';
             canvas.style.display = 'block';
             resizeCanvas();
             setTimeout(spawnCircle, 1000);
-        }
+        });
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
@@ -87,23 +88,26 @@
             }
             currentX = Math.random() * (canvas.width - CIRCLE_RADIUS * 2) + CIRCLE_RADIUS;
             currentY = Math.random() * (canvas.height - CIRCLE_RADIUS * 2) + CIRCLE_RADIUS;
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.beginPath();
             ctx.arc(currentX, currentY, CIRCLE_RADIUS, 0, Math.PI * 2);
-            ctx.fillStyle = "#dc3545";
+            ctx.fillStyle = "#ff4757";
             ctx.fill();
             ctx.closePath();
+            
             startTime = performance.now();
         }
 
-        canvas.addEventListener('click', (e) => {
+        canvas.addEventListener('mousedown', (e) => {
             const rect = canvas.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const clickY = e.clientY - rect.top;
-            const distance = Math.sqrt((clickX - currentX)**2 + (clickY - currentY)**2);
+            const dist = Math.sqrt((clickX - currentX)**2 + (clickY - currentY)**2);
             
-            if (distance < CIRCLE_RADIUS && startTime) {
-                results.push(performance.now() - startTime);
+            if (dist < CIRCLE_RADIUS && startTime) {
+                const rt = performance.now() - startTime;
+                results.push(rt);
                 startTime = null;
                 trialCount++;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -112,30 +116,37 @@
         });
 
         async function finishExperiment() {
-            if (document.exitFullscreen) document.exitFullscreen();
+            if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
             canvas.style.display = 'none';
             resultsScreen.style.display = 'flex';
 
             const userAvg = results.reduce((a, b) => a + b, 0) / results.length;
             document.getElementById('user-stats').innerText = `Your Average: ${userAvg.toFixed(2)} ms`;
 
-            // 1. Send data
             try {
+                // Submit data to Google Sheets
                 await fetch(ENDPOINT, {
                     method: 'POST',
-                    mode: 'no-cors',
-                    body: JSON.stringify({ participantId, trials: results })
+                    mode: 'no-cors', // Essential for Google Apps Script POST
+                    cache: 'no-cache',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        participantId: participantId,
+                        trials: results,
+                        timestamp: new Date().toISOString()
+                    })
                 });
 
-                // 2. Fetch historical data
+                // Fetch community data for histogram
                 const response = await fetch(ENDPOINT);
-                const historicalData = await response.json(); // Expecting array of numbers
+                const historicalData = await response.json();
                 
-                document.getElementById('loader').style.display = 'none';
+                document.getElementById('loader').innerText = "Comparison data loaded.";
                 renderChart(historicalData, userAvg);
             } catch (err) {
-                document.getElementById('loader').innerText = "Note: Could not load comparison data.";
-                renderChart([userAvg], userAvg); // Fallback to just user data
+                console.error("Data error:", err);
+                document.getElementById('loader').innerText = "Data saved, but could not load histogram.";
+                renderChart([userAvg], userAvg);
             }
         }
 
@@ -143,10 +154,9 @@
             const binSize = 50;
             const bins = {};
             
-            // Create histogram bins
             allData.forEach(val => {
-                const bin = Math.floor(val / binSize) * binSize;
-                bins[bin] = (bins[bin] || 0) + 1;
+                const b = Math.floor(val / binSize) * binSize;
+                bins[b] = (bins[b] || 0) + 1;
             });
 
             const labels = Object.keys(bins).sort((a, b) => a - b);
@@ -155,12 +165,12 @@
             new Chart(document.getElementById('histogramChart'), {
                 type: 'bar',
                 data: {
-                    labels: labels.map(l => `${l}-${parseInt(l) + binSize}ms`),
+                    labels: labels.map(l => `${l}ms`),
                     datasets: [{
-                        label: 'Frequency of Participants',
+                        label: 'Total Participants',
                         data: dataPoints,
-                        backgroundColor: 'rgba(0, 123, 255, 0.5)',
-                        borderColor: 'rgba(0, 123, 255, 1)',
+                        backgroundColor: 'rgba(0, 123, 255, 0.4)',
+                        borderColor: '#007bff',
                         borderWidth: 1
                     }]
                 },
@@ -170,24 +180,20 @@
                     plugins: {
                         annotation: {
                             annotations: {
-                                line1: {
+                                userLine: {
                                     type: 'line',
-                                    xMin: (userAvg / binSize).toFixed(0), // Rough mapping to bin index
-                                    xMax: (userAvg / binSize).toFixed(0),
-                                    borderColor: 'red',
+                                    scaleID: 'x',
+                                    value: labels.indexOf(Math.floor(userAvg / binSize) * binSize).toString(),
+                                    borderColor: '#ff4757',
                                     borderWidth: 4,
                                     label: {
                                         display: true,
                                         content: 'YOU',
-                                        backgroundColor: 'red'
+                                        backgroundColor: '#ff4757'
                                     }
                                 }
                             }
                         }
-                    },
-                    scales: {
-                        y: { beginAtZero: true, title: { display: true, text: 'Count' } },
-                        x: { title: { display: true, text: 'Reaction Time (ms)' } }
                     }
                 }
             });
